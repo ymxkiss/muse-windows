@@ -76,6 +76,8 @@
       </section>
 
       <section id="settingsTab" class="tab-content" hidden>
+        <p class="hint">首次启动会生成随机的基础浏览器环境并保存，以后启动持续复用；不会每次随机更换。范围包含语言、时区、逻辑处理器数和屏幕参数，并使用独立网站数据目录。此功能不保证所有硬件指纹全新。</p>
+        <p class="fine-print" id="environmentSummary">环境配置加载中…</p>
         <p class="hint">User-Agent 默认仿照 Windows 上的 Google Chrome；这只会改变网站看到的浏览器标识，不会把 Chromium 内核变成 Google Chrome。</p>
         <form id="userAgentForm" class="settings-form">
           <label>浏览器标识（User-Agent）<textarea id="userAgentInput" rows="4" spellcheck="false"></textarea></label>

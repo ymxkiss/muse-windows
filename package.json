@@ -1,13 +1,14 @@
 {
   "name": "muse-ai-browser",
-  "version": "1.0.0",
+  "version": "1.0.5",
   "description": "Muse AI Browser with persistent local profile and subscription manager",
   "main": "src/main.js",
   "author": "x.yu",
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "pack:win": "electron-builder --win portable --x64"
+    "pack:win": "electron-builder --win portable --x64",
+    "test": "node --test test/*.test.js"
   },
   "devDependencies": {
     "electron": "^44.7.0",
@@ -50,11 +51,13 @@
         }
       ],
       "icon": "assets/app.ico",
-      "artifactName": "Muse-AI-Browser-${version}-portable.${ext}"
+      "artifactName": "Muse-AI-Browser-${version}-portable.${ext}",
+      "signExecutable": false
     },
     "portable": {
       "artifactName": "Muse-AI-Browser-${version}-portable.${ext}"
-    }
+    },
+    "compression": "normal"
   },
   "dependencies": {
     "js-yaml": "^4.3.2"

@@ -9,7 +9,8 @@ const {
   session,
   net,
   shell,
-  globalShortcut
+  globalShortcut,
+  dialog
 } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,6 +19,7 @@ const nodeNet = require('node:net');
 const { spawn } = require('node:child_process');
 const { parseSubscriptionNodes } = require('./proxy-nodes');
 const { makeMihomoConfig, proxyConfiguration } = require('./proxy-core-config');
+const { loadOrCreateEnvironment, applyEnvironment } = require('./browser-environment');
 
 const APP_TITLE = 'Muse AI Browser';
 const PORTABLE_DIR = process.env.PORTABLE_EXECUTABLE_DIR ||
@@ -38,6 +40,23 @@ fs.mkdirSync(SUBSCRIPTIONS_DIR, { recursive: true });
 app.setPath('userData', DATA_DIR);
 app.setPath('sessionData', path.join(DATA_DIR, 'SessionData'));
 app.setAppUserModelId('com.xy.museaibrowser');
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+  return;
+}
+let browserEnvironment;
+try {
+  browserEnvironment = loadOrCreateEnvironment(DATA_DIR);
+} catch (error) {
+  app.whenReady().then(() => {
+    dialog.showErrorBox('浏览器环境初始化失败', error.message);
+    app.exit(1);
+  });
+  return;
+}
+app.commandLine.appendSwitch('lang', browserEnvironment.locale);
+// WebRTC must not silently bypass the chosen proxy using a direct UDP socket.
+app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp');
 
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
@@ -235,7 +254,8 @@ async function getAppState() {
     subscriptions,
     proxyNodes: nodes.map(publicProxyNode),
     proxyNodeId: settings.proxyNodeId || '',
-    navigationHidden: settings.navigationHidden
+    navigationHidden: settings.navigationHidden,
+    environment: browserEnvironment
   };
 }
 function emitBrowserState(extra = {}) {
@@ -311,7 +331,7 @@ function createMainWindow() {
     if (!url.startsWith('file://')) event.preventDefault();
   });
 
-  const museSession = session.fromPartition('persist:muse-browser', { cache: true });
+  const museSession = session.fromPartition(`persist:muse-${browserEnvironment.id}`, { cache: true });
   browserSession = museSession;
   museView = new WebContentsView({
     webPreferences: {
@@ -397,6 +417,7 @@ function createMainWindow() {
     persistSettings();
   }
   proxyInitialization = (async () => {
+    await applyEnvironment(museView.webContents, museSession, browserEnvironment, settings.userAgent, process.versions.chrome);
     try {
       await applyProxyNode(initialNode);
     } catch {
@@ -409,6 +430,9 @@ function createMainWindow() {
     if (museView && !museView.webContents.isDestroyed()) {
       museView.webContents.loadURL(INITIAL_URL).catch(() => emitBrowserState({ loading: false, failed: true }));
     }
+  }).catch((error) => {
+    dialog.showErrorBox('浏览器环境应用失败', `为避免使用未配置的环境，程序已停止。\n${error.message}`);
+    app.exit(1);
   });
   return mainWindow;
 }
@@ -499,13 +523,14 @@ ipcMain.handle('browser:command', async (event, command) => {
   else if (command === 'home') contents.loadURL(START_URL).catch(() => {});
   return { url: contents.getURL() };
 });
-ipcMain.handle('app:save-user-agent', (event, value) => {
+ipcMain.handle('app:save-user-agent', async (event, value) => {
   assertLocalRenderer(event);
+  await proxyInitialization;
   const userAgent = String(value || '').trim();
   if (userAgent.length < 20 || userAgent.length > 500) throw new Error('浏览器标识长度应为 20–500 个字符。');
+  await applyEnvironment(museView.webContents, browserSession, browserEnvironment, userAgent, process.versions.chrome);
   settings.userAgent = userAgent;
   persistSettings();
-  museView.webContents.setUserAgent(userAgent);
   museView.webContents.reload();
   return { userAgent };
 });
@@ -628,6 +653,7 @@ app.whenReady().then(() => {
   createMainWindow();
 });
 app.on('activate', showMainWindow);
+app.on('second-instance', showMainWindow);
 app.on('before-quit', () => {
   isQuitting = true;
   for (const core of proxyCores) stopProxyCore(core);

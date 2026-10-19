@@ -126,6 +126,10 @@ async function refreshState() {
   appState = await window.museApp.getState();
   $('#userAgentInput').value = appState.userAgent;
   $('#dataDirectory').textContent = appState.dataDir;
+  const environment = appState.environment;
+  $('#environmentSummary').textContent = environment
+    ? `环境 ID：${environment.id} · ${environment.locale} · ${environment.timezoneId} · ${environment.hardwareConcurrency} 线程 · ${environment.screen.width}×${environment.screen.height} · 配置：browser-environment.json`
+    : '环境配置尚未就绪';
   renderSubscriptions();
   renderProxyOptions();
   setNavigationHidden(Boolean(appState.navigationHidden), false);

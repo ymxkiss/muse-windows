@@ -84,6 +84,7 @@ settings.userAgent = (typeof settings.userAgent === 'string' && settings.userAge
   ? settings.userAgent.trim()
   : DEFAULT_USER_AGENT;
 settings.navigationHidden = typeof settings.navigationHidden === 'boolean' ? settings.navigationHidden : false;
+settings.rightClickDisabled = typeof settings.rightClickDisabled === 'boolean' ? settings.rightClickDisabled : false;
 let subscriptions = readJson(SUBSCRIPTIONS_FILE, []);
 if (!Array.isArray(subscriptions)) subscriptions = [];
 let mainWindow = null;
@@ -267,6 +268,7 @@ async function getAppState() {
     proxyNodes: nodes.map(publicProxyNode),
     proxyNodeId: settings.proxyNodeId || '',
     navigationHidden: settings.navigationHidden,
+    rightClickDisabled: settings.rightClickDisabled,
     environment: browserEnvironment
   };
 }
@@ -356,7 +358,11 @@ function createMainWindow() {
     }
   });
   museView.webContents.setUserAgent(settings.userAgent);
-  museView.webContents.on('context-menu', (_event, params) => {
+  museView.webContents.on('context-menu', (event, params) => {
+    if (settings.rightClickDisabled) {
+      event.preventDefault();
+      return;
+    }
     if (!mainWindow || mainWindow.isDestroyed()) return;
     const items = [];
     if (params.isEditable) {
@@ -498,6 +504,13 @@ ipcMain.on('ui:navigation-hidden', (event, hidden) => {
   assertLocalRenderer(event);
   settings.navigationHidden = Boolean(hidden);
   persistSettings();
+});
+ipcMain.handle('app:set-right-click-disabled', (event, disabled) => {
+  assertLocalRenderer(event);
+  if (typeof disabled !== 'boolean') throw new Error('右键设置值无效。');
+  settings.rightClickDisabled = disabled;
+  persistSettings();
+  return { rightClickDisabled: settings.rightClickDisabled };
 });
 ipcMain.on('ui:overlay', (event, visible) => {
   assertLocalRenderer(event);

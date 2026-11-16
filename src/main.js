@@ -20,6 +20,7 @@ const { spawn } = require('node:child_process');
 const { parseSubscriptionNodes } = require('./proxy-nodes');
 const { makeMihomoConfig, proxyConfiguration } = require('./proxy-core-config');
 const { loadOrCreateEnvironment, applyEnvironment } = require('./browser-environment');
+const { loadOrCreateDefaultPage } = require('./default-page');
 
 const APP_TITLE = 'Muse AI Browser';
 const PORTABLE_DIR = process.env.PORTABLE_EXECUTABLE_DIR ||
@@ -29,8 +30,7 @@ const SUBSCRIPTIONS_DIR = path.join(DATA_DIR, 'subscriptions');
 const CORE_DATA_DIR = path.join(DATA_DIR, 'mihomo');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const SUBSCRIPTIONS_FILE = path.join(DATA_DIR, 'subscriptions.json');
-const START_URL = 'http://muse.ai';
-const INITIAL_URL = START_URL;
+const INITIAL_URL = 'about:blank';
 const MAX_SUBSCRIPTION_BYTES = 25 * 1024 * 1024;
 const DEFAULT_USER_AGENT = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`;
 
@@ -40,6 +40,16 @@ fs.mkdirSync(SUBSCRIPTIONS_DIR, { recursive: true });
 app.setPath('userData', DATA_DIR);
 app.setPath('sessionData', path.join(DATA_DIR, 'SessionData'));
 app.setAppUserModelId('com.xy.museaibrowser');
+let defaultPage;
+try {
+  defaultPage = loadOrCreateDefaultPage(DATA_DIR);
+} catch (error) {
+  app.whenReady().then(() => {
+    dialog.showErrorBox('默认访问页配置无效', error.message);
+    app.exit(1);
+  });
+  return;
+}
 if (!app.requestSingleInstanceLock()) {
   app.quit();
   return;
@@ -250,6 +260,8 @@ async function getAppState() {
   const nodes = collectProxyNodes();
   return {
     dataDir: DATA_DIR,
+    defaultPageFile: path.join(DATA_DIR, 'default-page.json'),
+    startUrl: defaultPage.startUrl,
     userAgent: settings.userAgent,
     subscriptions,
     proxyNodes: nodes.map(publicProxyNode),
@@ -406,7 +418,7 @@ function createMainWindow() {
     mainWindow.webContents.send('app:ready', {
       dataDir: DATA_DIR,
       userAgent: settings.userAgent,
-      startUrl: START_URL
+      startUrl: defaultPage.startUrl
     });
     mainWindow.webContents.send('window:maximized', mainWindow.isMaximized());
   });
@@ -428,7 +440,7 @@ function createMainWindow() {
   })();
   proxyInitialization.then(() => {
     if (museView && !museView.webContents.isDestroyed()) {
-      museView.webContents.loadURL(INITIAL_URL).catch(() => emitBrowserState({ loading: false, failed: true }));
+      museView.webContents.loadURL(defaultPage.startUrl).catch(() => emitBrowserState({ loading: false, failed: true }));
     }
   }).catch((error) => {
     dialog.showErrorBox('浏览器环境应用失败', `为避免使用未配置的环境，程序已停止。\n${error.message}`);
@@ -520,7 +532,7 @@ ipcMain.handle('browser:command', async (event, command) => {
   else if (command === 'forward' && contents.canGoForward()) contents.goForward();
   else if (command === 'reload') contents.reload();
   else if (command === 'stop') contents.stop();
-  else if (command === 'home') contents.loadURL(START_URL).catch(() => {});
+  else if (command === 'home') contents.loadURL(defaultPage.startUrl).catch(() => {});
   return { url: contents.getURL() };
 });
 ipcMain.handle('app:save-user-agent', async (event, value) => {

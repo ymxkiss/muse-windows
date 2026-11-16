@@ -1,6 +1,6 @@
 {
   "name": "muse-ai-browser",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Muse AI Browser with persistent local profile and subscription manager",
   "main": "src/main.js",
   "author": "x.yu",

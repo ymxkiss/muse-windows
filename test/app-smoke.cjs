@@ -34,9 +34,25 @@ server.listen(0, '127.0.0.1', () => {
           await new Promise((resolve) => setTimeout(resolve, 100));
           continue;
         }
+        const initialState = await main.webContents.executeJavaScript('window.museApp.getState()');
+        assert.equal(initialState.rightClickDisabled, false);
+        const toggleState = await main.webContents.executeJavaScript("document.querySelector('#rightClickDisabledToggle').getAttribute('aria-checked')");
+        assert.equal(toggleState, 'false');
+        await main.webContents.executeJavaScript("document.querySelector('[data-tab=\"settingsTab\"]').click(); document.querySelector('#rightClickDisabledToggle').click();");
+        let updatedState;
+        for (let attempt = 0; attempt < 20; attempt++) {
+          updatedState = await main.webContents.executeJavaScript('window.museApp.getState()');
+          if (updatedState.rightClickDisabled) break;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        assert.equal(updatedState.rightClickDisabled, true);
+        assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8')).rightClickDisabled, true);
+        let contextMenuPrevented = false;
+        page.emit('context-menu', { preventDefault() { contextMenuPrevented = true; } }, {});
+        assert.equal(contextMenuPrevented, true);
         assert.equal(page.getURL(), startUrl);
         assert.ok(page.session.getStoragePath().includes(`muse-${profile.id}`));
-        console.log('PASS: configured default page, full application startup, isolated profile, applied parameters and settings UI');
+        console.log('PASS: configured default page, isolated profile, settings UI, persisted right-click toggle and suppressed context menu');
         clearTimeout(timer);
         server.close();
         app.quit();

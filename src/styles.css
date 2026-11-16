@@ -98,6 +98,17 @@ label input:focus, label textarea:focus { border-color: #7ea7ed; box-shadow: 0 0
 .settings-form { display: flex; flex-direction: column; gap: 12px; max-width: 700px; }
 .settings-form textarea { resize: vertical; min-height: 86px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; line-height: 1.5; }
 .settings-form .primary-button { align-self: flex-start; }
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 0 0 16px; padding: 13px 14px; border: 1px solid #e4e9f0; border-radius: 11px; background: #f8fafd; }
+.setting-row strong { color: #36445b; font-size: 12px; }
+.setting-row p { margin: 5px 0 0; color: #77849a; font-size: 11px; line-height: 1.5; }
+.switch-button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 8px; min-width: 72px; height: 34px; padding: 0 9px; border: 1px solid #dce2eb; border-radius: 18px; background: #fff; color: #67748a; font-size: 12px; }
+.switch-button:hover { background: #f0f4fa; border-color: #c6d0df; }
+.switch-button.enabled { border-color: #2f70d2; background: #3479df; color: #fff; }
+.switch-indicator { width: 16px; height: 16px; border-radius: 50%; background: #c7cfdb; transition: transform .12s ease, background-color .12s ease; }
+.switch-button.enabled .switch-indicator { background: #fff; }
+.switch-button:disabled { cursor: wait; opacity: .65; }
+.switch-button:focus-visible { outline: 2px solid #7ea7ed; outline-offset: 2px; }
+.switch-label { min-width: 12px; text-align: center; }
 .data-location { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 24px; padding: 14px; border: 1px solid #e6eaf0; border-radius: 11px; }
 .data-location strong { font-size: 12px; }
 .data-location p { max-width: 630px; overflow-wrap: anywhere; margin: 5px 0 0; color: #77849a; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; }
@@ -115,6 +126,7 @@ code { color: #53647f; }
   .window-control { width: 29px; }
   .subscription-form { grid-template-columns: 1fr; }
   .form-actions { justify-content: flex-start; }
+  .setting-row { align-items: flex-start; }
   .manager-card { min-height: 0; max-height: 96vh; padding: 20px; }
   .subscription-card { align-items: flex-start; flex-direction: column; gap: 10px; }
   .subscription-actions { flex-wrap: wrap; }

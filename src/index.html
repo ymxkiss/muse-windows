@@ -28,7 +28,7 @@
       <button class="nav-button" id="forwardButton" type="button" title="前进" aria-label="前进">›</button>
       <button class="nav-button" id="reloadButton" type="button" title="刷新" aria-label="刷新">↻</button>
       <button class="nav-button stop-button" id="stopButton" type="button" title="停止加载" aria-label="停止加载" disabled>×</button>
-      <button class="nav-button home-button" id="homeButton" type="button" title="打开 muse.ai" aria-label="打开 muse.ai">⌂</button>
+      <button class="nav-button home-button" id="homeButton" type="button" title="打开默认访问页" aria-label="打开默认访问页">⌂</button>
       <div class="address-wrap">
         <span class="secure-mark" aria-hidden="true">●</span>
         <input id="addressInput" type="text" spellcheck="false" autocomplete="off" aria-label="网址" value="http://muse.ai">
@@ -78,6 +78,8 @@
       <section id="settingsTab" class="tab-content" hidden>
         <p class="hint">首次启动会生成随机的基础浏览器环境并保存，以后启动持续复用；不会每次随机更换。范围包含语言、时区、逻辑处理器数和屏幕参数，并使用独立网站数据目录。此功能不保证所有硬件指纹全新。</p>
         <p class="fine-print" id="environmentSummary">环境配置加载中…</p>
+        <p class="hint">默认打开的网址保存在 <code>default-page.json</code>。修改其中的 <code>startUrl</code> 后重启浏览器生效；仅支持 HTTP/HTTPS 完整网址。</p>
+        <p class="fine-print">默认访问页配置：<code id="defaultPageFile">加载中…</code></p>
         <p class="hint">User-Agent 默认仿照 Windows 上的 Google Chrome；这只会改变网站看到的浏览器标识，不会把 Chromium 内核变成 Google Chrome。</p>
         <form id="userAgentForm" class="settings-form">
           <label>浏览器标识（User-Agent）<textarea id="userAgentInput" rows="4" spellcheck="false"></textarea></label>

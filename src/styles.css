@@ -56,6 +56,8 @@ button { cursor: pointer; }
 .proxy-health.healthy { border-color: #cce5d4; background: #eff9f2; color: #287445; }
 .proxy-health.unhealthy { border-color: #f0d0d0; background: #fff3f3; color: #ad4545; }
 .connection-status { min-width: 72px; text-align: right; color: #758197; font-size: 11px; white-space: nowrap; }
+.right-click-toggle { flex: 0 0 auto; min-width: 78px; padding: 0 9px; font-size: 11px; white-space: nowrap; }
+.right-click-toggle:focus-visible { outline: 2px solid #7ea7ed; outline-offset: 1px; }
 .window-controls { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; margin-left: 4px; padding-left: 8px; border-left: 1px solid #edf0f4; }
 .window-control { display: grid; width: 32px; height: 30px; place-items: center; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #536078; font: 18px/1 "Segoe UI", sans-serif; }
 .window-control:hover { border-color: #e2e6ed; background: #f1f4f8; }

@@ -84,6 +84,7 @@ settings.userAgent = (typeof settings.userAgent === 'string' && settings.userAge
   ? settings.userAgent.trim()
   : DEFAULT_USER_AGENT;
 settings.navigationHidden = typeof settings.navigationHidden === 'boolean' ? settings.navigationHidden : false;
+settings.rightClickDisabled = typeof settings.rightClickDisabled === 'boolean' ? settings.rightClickDisabled : false;
 let subscriptions = readJson(SUBSCRIPTIONS_FILE, []);
 if (!Array.isArray(subscriptions)) subscriptions = [];
 let mainWindow = null;
@@ -267,6 +268,7 @@ async function getAppState() {
     proxyNodes: nodes.map(publicProxyNode),
     proxyNodeId: settings.proxyNodeId || '',
     navigationHidden: settings.navigationHidden,
+    rightClickDisabled: settings.rightClickDisabled,
     environment: browserEnvironment
   };
 }
@@ -356,8 +358,12 @@ function createMainWindow() {
     }
   });
   museView.webContents.setUserAgent(settings.userAgent);
-  museView.webContents.on('context-menu', (_event, params) => {
+  museView.webContents.on('context-menu', (event, params) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (settings.rightClickDisabled) {
+      event.preventDefault();
+      return;
+    }
     const items = [];
     if (params.isEditable) {
       items.push({ role: 'undo', label: '撤销' }, { role: 'redo', label: '重做' }, { type: 'separator' });
@@ -498,6 +504,12 @@ ipcMain.on('ui:navigation-hidden', (event, hidden) => {
   assertLocalRenderer(event);
   settings.navigationHidden = Boolean(hidden);
   persistSettings();
+});
+ipcMain.handle('browser:set-right-click-disabled', (event, disabled) => {
+  assertLocalRenderer(event);
+  settings.rightClickDisabled = Boolean(disabled);
+  persistSettings();
+  return { rightClickDisabled: settings.rightClickDisabled };
 });
 ipcMain.on('ui:overlay', (event, visible) => {
   assertLocalRenderer(event);

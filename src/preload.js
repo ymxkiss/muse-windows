@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('museApp', {
   getState: () => ipcRenderer.invoke('app:get-state'),
   navigate: (url) => ipcRenderer.invoke('browser:navigate', url),
   setProxy: (nodeId) => ipcRenderer.invoke('browser:set-proxy', nodeId),
+  setRightClickDisabled: (disabled) => ipcRenderer.invoke('browser:set-right-click-disabled', disabled),
   checkProxyHealth: () => ipcRenderer.invoke('browser:check-proxy-health'),
   browserCommand: (command) => ipcRenderer.invoke('browser:command', command),
   windowControl: (command) => ipcRenderer.invoke('window:control', command),

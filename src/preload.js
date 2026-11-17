@@ -8,7 +8,6 @@ contextBridge.exposeInMainWorld('museApp', {
   browserCommand: (command) => ipcRenderer.invoke('browser:command', command),
   windowControl: (command) => ipcRenderer.invoke('window:control', command),
   saveUserAgent: (value) => ipcRenderer.invoke('app:save-user-agent', value),
-  setRightClickDisabled: (disabled) => ipcRenderer.invoke('app:set-right-click-disabled', disabled),
   openDataDir: () => ipcRenderer.invoke('app:open-data-dir'),
   setLayout: (height) => ipcRenderer.send('ui:layout', height),
   setNavigationHidden: (hidden) => ipcRenderer.send('ui:navigation-hidden', hidden),

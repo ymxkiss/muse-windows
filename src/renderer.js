@@ -6,7 +6,7 @@ const connectionStatus = $('#connectionStatus');
 const overlay = $('#managerOverlay');
 const subscriptionList = $('#subscriptionList');
 const toast = $('#toast');
-let appState = { subscriptions: [], userAgent: '', dataDir: '', proxyNodes: [], proxyNodeId: '', navigationHidden: false, rightClickDisabled: false };
+let appState = { subscriptions: [], userAgent: '', dataDir: '', proxyNodes: [], proxyNodeId: '', navigationHidden: false };
 let toastTimer;
 let healthCheckToken = 0;
 
@@ -134,7 +134,6 @@ async function refreshState() {
   renderSubscriptions();
   renderProxyOptions();
   setNavigationHidden(Boolean(appState.navigationHidden), false);
-  renderRightClickDisabled(Boolean(appState.rightClickDisabled));
   await updateProxyHealth();
 }
 function openManager(tabName = 'subscriptionsTab') {
@@ -211,35 +210,9 @@ function renderMaximizeButton(maximized) {
   button.title = maximized ? '还原' : '最大化';
   button.setAttribute('aria-label', button.title);
 }
-function renderRightClickDisabled(disabled) {
-  const button = $('#rightClickDisabledToggle');
-  button.classList.toggle('enabled', disabled);
-  button.setAttribute('aria-checked', String(disabled));
-  button.setAttribute('aria-label', `${disabled ? '取消禁止' : '禁止'}网页区域右键`);
-  button.querySelector('.switch-label').textContent = disabled ? '是' : '否';
-}
 
 $('#subscriptionsButton').addEventListener('click', () => openManager('subscriptionsTab'));
 $('#settingsButton').addEventListener('click', () => setNavigationHidden(!appState.navigationHidden));
-$('#rightClickDisabledToggle').addEventListener('click', async () => {
-  const previous = Boolean(appState.rightClickDisabled);
-  const disabled = !previous;
-  const button = $('#rightClickDisabledToggle');
-  button.disabled = true;
-  renderRightClickDisabled(disabled);
-  try {
-    const result = await window.museApp.setRightClickDisabled(disabled);
-    appState.rightClickDisabled = result.rightClickDisabled;
-    renderRightClickDisabled(appState.rightClickDisabled);
-    showToast(appState.rightClickDisabled ? '已禁止网页区域右键。' : '已恢复网页右键菜单。');
-  } catch (error) {
-    appState.rightClickDisabled = previous;
-    renderRightClickDisabled(previous);
-    showToast(error.message || '右键设置保存失败。', true);
-  } finally {
-    button.disabled = false;
-  }
-});
 $('#closeManager').addEventListener('click', closeManager);
 $('#minimizeWindow').addEventListener('click', () => window.museApp.windowControl('minimize').catch((error) => showToast(error.message || '无法最小化窗口。', true)));
 $('#maximizeWindow').addEventListener('click', () => window.museApp.windowControl('toggle-maximize').catch((error) => showToast(error.message || '无法调整窗口大小。', true)));

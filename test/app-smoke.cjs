@@ -36,7 +36,46 @@ server.listen(0, '127.0.0.1', () => {
         }
         assert.equal(page.getURL(), startUrl);
         assert.ok(page.session.getStoragePath().includes(`muse-${profile.id}`));
-        console.log('PASS: configured default page, full application startup, isolated profile, applied parameters and settings UI');
+        const tabs = await main.webContents.executeJavaScript('window.museApp.addTab()');
+        assert.equal(tabs.tabs.length, 2);
+        const secondTab = tabs.tabs.find((tab) => tab.name === '新标签');
+        assert.ok(secondTab);
+        assert.equal(tabs.activeTabId, secondTab.id);
+        const secondPage = webContents.getAllWebContents().find((contents) =>
+          contents.session.getStoragePath().includes(`${profile.id}-${secondTab.id}`));
+        assert.ok(secondPage, 'second tab should have a separate persistent browser session');
+        const renameUi = await main.webContents.executeJavaScript(`(async () => {
+          const button = document.querySelector('#browserTabs .browser-tab.active .browser-tab-select');
+          const contextEvent = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 });
+          button.dispatchEvent(contextEvent);
+          const overlay = document.querySelector('#renameTabOverlay');
+          const input = document.querySelector('#renameTabName');
+          const dialogOpened = !overlay.hidden && input.value === '新标签';
+          input.value = '右键重命名测试';
+          document.querySelector('#renameTabForm').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+          for (let attempt = 0; attempt < 40; attempt++) {
+            const currentName = document.querySelector('#browserTabs .browser-tab.active .browser-tab-select')?.textContent;
+            if (currentName === input.value && overlay.hidden) break;
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          return {
+            contextMenuPrevented: contextEvent.defaultPrevented,
+            dialogOpened,
+            dialogClosed: overlay.hidden,
+            tabName: document.querySelector('#browserTabs .browser-tab.active .browser-tab-select')?.textContent
+          };
+        })()`);
+        assert.equal(renameUi.contextMenuPrevented, true);
+        assert.equal(renameUi.dialogOpened, true);
+        assert.equal(renameUi.dialogClosed, true);
+        assert.equal(renameUi.tabName, '右键重命名测试');
+        const savedTabs = JSON.parse(fs.readFileSync(path.join(dataDir, 'config', 'browser-tabs.json'), 'utf8'));
+        assert.equal(savedTabs.tabs.find((tab) => tab.id === secondTab.id).name, '右键重命名测试');
+        assert.equal(savedTabs.tabs.find((tab) => tab.id === secondTab.id).partitionKey, secondTab.id);
+        const firstTabId = tabs.tabs.find((tab) => tab.id !== secondTab.id).id;
+        const switched = await main.webContents.executeJavaScript(`window.museApp.activateTab('${firstTabId}')`);
+        assert.equal(switched.activeTabId, firstTabId);
+        console.log('PASS: configured default page, persistent default and additional tabs, independent session, rename/switch IPC, applied parameters and settings UI');
         clearTimeout(timer);
         server.close();
         app.quit();

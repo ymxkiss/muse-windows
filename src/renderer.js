@@ -6,9 +6,72 @@ const connectionStatus = $('#connectionStatus');
 const overlay = $('#managerOverlay');
 const subscriptionList = $('#subscriptionList');
 const toast = $('#toast');
+const renameOverlay = $('#renameTabOverlay');
+const renameTabForm = $('#renameTabForm');
+const renameTabName = $('#renameTabName');
+const renameTabError = $('#renameTabError');
 let appState = { subscriptions: [], userAgent: '', dataDir: '', proxyNodes: [], proxyNodeId: '', navigationHidden: false, rightClickDisabled: false };
 let toastTimer;
 let healthCheckToken = 0;
+let renamingTabId = null;
+
+function renderTabs() {
+  const container = $('#browserTabs');
+  container.replaceChildren();
+  const tabs = appState.tabs || [];
+  for (const tab of tabs) {
+    const item = document.createElement('div');
+    item.className = `browser-tab${tab.id === appState.activeTabId ? ' active' : ''}`;
+    const select = safeText('button', 'browser-tab-select', tab.name);
+    select.type = 'button';
+    select.title = `${tab.name}：单击切换，右键重命名`;
+    select.setAttribute('role', 'tab');
+    select.setAttribute('aria-selected', String(tab.id === appState.activeTabId));
+    select.addEventListener('click', () => activateBrowserTab(tab.id));
+    select.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openRenameTabDialog(tab);
+    });
+    const close = safeText('button', 'browser-tab-close', '×');
+    close.type = 'button';
+    close.title = tabs.length > 1 ? `关闭“${tab.name}”` : '至少保留一个标签';
+    close.setAttribute('aria-label', close.title);
+    close.disabled = tabs.length <= 1;
+    close.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      try {
+        const result = await window.museApp.closeTab(tab.id);
+        appState.tabs = result.tabs;
+        appState.activeTabId = result.activeTabId;
+        syncActiveTabUi();
+      } catch (error) { showToast(error.message || '关闭标签失败。', true); }
+    });
+    item.append(select, close);
+    container.append(item);
+  }
+}
+
+function syncActiveTabUi() {
+  renderTabs();
+  const tab = (appState.tabs || []).find((item) => item.id === appState.activeTabId);
+  if (tab) {
+    addressInput.value = tab.url || '';
+    appState.proxyNodeId = tab.proxyNodeId || '';
+    renderProxyOptions();
+    updateProxyHealth();
+  }
+}
+
+async function activateBrowserTab(id) {
+  if (id === appState.activeTabId) return;
+  try {
+    const result = await window.museApp.activateTab(id);
+    appState.tabs = result.tabs;
+    appState.activeTabId = result.activeTabId;
+    syncActiveTabUi();
+  } catch (error) { showToast(error.message || '切换标签失败。', true); }
+}
 
 function showToast(message, isError = false) {
   toast.textContent = message;
@@ -16,6 +79,23 @@ function showToast(message, isError = false) {
   toast.classList.add('visible');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove('visible'), 3200);
+}
+function openRenameTabDialog(tab) {
+  renamingTabId = tab.id;
+  renameTabName.value = tab.name;
+  renameTabError.hidden = true;
+  renameTabError.textContent = '';
+  renameOverlay.hidden = false;
+  window.museApp.setOverlay(true);
+  requestAnimationFrame(() => {
+    renameTabName.focus();
+    renameTabName.select();
+  });
+}
+function closeRenameTabDialog() {
+  renameOverlay.hidden = true;
+  renamingTabId = null;
+  window.museApp.setOverlay(false);
 }
 function formatDate(value) {
   if (!value) return '尚未更新';
@@ -127,12 +207,14 @@ async function refreshState() {
   $('#userAgentInput').value = appState.userAgent;
   $('#dataDirectory').textContent = appState.dataDir;
   $('#defaultPageFile').textContent = appState.defaultPageFile;
+  $('#tabsConfigFile').textContent = appState.tabsConfigFile;
   const environment = appState.environment;
   $('#environmentSummary').textContent = environment
     ? `环境 ID：${environment.id} · ${environment.locale} · ${environment.timezoneId} · ${environment.hardwareConcurrency} 线程 · ${environment.screen.width}×${environment.screen.height} · 配置：browser-environment.json`
     : '环境配置尚未就绪';
   renderSubscriptions();
   renderProxyOptions();
+  renderTabs();
   setNavigationHidden(Boolean(appState.navigationHidden), false);
   renderRightClickToggle();
   await updateProxyHealth();
@@ -221,6 +303,43 @@ function renderMaximizeButton(maximized) {
 }
 
 $('#subscriptionsButton').addEventListener('click', () => openManager('subscriptionsTab'));
+$('#addTagButton').addEventListener('click', async () => {
+  try {
+    const result = await window.museApp.addTab();
+    appState.tabs = result.tabs;
+    appState.activeTabId = result.activeTabId;
+    syncActiveTabUi();
+    showToast('已添加新标签。');
+  } catch (error) { showToast(error.message || '添加标签失败。', true); }
+});
+renameTabForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!renamingTabId) return;
+  const saveButton = $('#saveTabNameButton');
+  saveButton.disabled = true;
+  renameTabError.hidden = true;
+  try {
+    const result = await window.museApp.renameTab(renamingTabId, renameTabName.value);
+    appState.tabs = result.tabs;
+    appState.activeTabId = result.activeTabId;
+    renderTabs();
+    closeRenameTabDialog();
+  } catch (error) {
+    renameTabError.textContent = error.message || '标签重命名失败，请重试。';
+    renameTabError.hidden = false;
+    renameTabName.focus();
+  } finally {
+    saveButton.disabled = false;
+  }
+});
+$('#cancelTabNameButton').addEventListener('click', closeRenameTabDialog);
+renameOverlay.addEventListener('click', (event) => {
+  if (event.target === renameOverlay) closeRenameTabDialog();
+});
+renameTabName.addEventListener('input', () => { renameTabError.hidden = true; });
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !renameOverlay.hidden) closeRenameTabDialog();
+});
 $('#settingsButton').addEventListener('click', () => setNavigationHidden(!appState.navigationHidden));
 $('#rightClickButton').addEventListener('click', async () => {
   const button = $('#rightClickButton');
@@ -341,6 +460,7 @@ $('#reloadButton').addEventListener('click', () => window.museApp.browserCommand
 $('#stopButton').addEventListener('click', () => window.museApp.browserCommand('stop'));
 $('#homeButton').addEventListener('click', () => window.museApp.browserCommand('home'));
 window.museApp.onBrowserState((state) => {
+  if (state.activeTabId && state.activeTabId !== appState.activeTabId) appState.activeTabId = state.activeTabId;
   if (state.url) addressInput.value = state.url;
   if (state.proxyNodeId !== undefined && state.proxyNodeId !== appState.proxyNodeId) {
     appState.proxyNodeId = state.proxyNodeId;
@@ -348,6 +468,15 @@ window.museApp.onBrowserState((state) => {
   }
   connectionStatus.textContent = state.failed ? '页面暂不可用' : state.loading ? '正在载入' : state.url ? '网页已就绪' : '等待访问';
   $('#stopButton').disabled = !state.loading;
+});
+window.museApp.onActiveTab((tab) => {
+  if (!tab) return;
+  appState.activeTabId = tab.id;
+  if (!Array.isArray(appState.tabs)) appState.tabs = [];
+  const index = appState.tabs.findIndex((item) => item.id === tab.id);
+  if (index >= 0) appState.tabs[index] = tab;
+  else appState.tabs.push(tab);
+  syncActiveTabUi();
 });
 window.museApp.onAppReady((state) => {
   if (state.startUrl) addressInput.value = state.startUrl;

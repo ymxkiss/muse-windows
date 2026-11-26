@@ -14,6 +14,10 @@
         <img src="../assets/favicon.ico" alt="">
         <span>Muse AI Browser</span>
       </div>
+      <div class="browser-tab-strip" aria-label="网页标签">
+        <button class="add-tab-button" id="addTagButton" type="button" title="添加标签">＋ 添加标签</button>
+        <div class="browser-tabs" id="browserTabs" role="tablist" aria-label="浏览器标签"></div>
+      </div>
       <div class="top-actions">
         <button class="icon-button" id="settingsButton" type="button" title="隐藏地址栏和节点栏" aria-label="隐藏地址栏和节点栏" aria-expanded="true">⚙</button>
         <div class="window-controls" aria-label="窗口控制">
@@ -81,6 +85,8 @@
         <p class="fine-print" id="environmentSummary">环境配置加载中…</p>
         <p class="hint">默认打开的网址保存在 <code>default-page.json</code>。修改其中的 <code>startUrl</code> 后重启浏览器生效；仅支持 HTTP/HTTPS 完整网址。</p>
         <p class="fine-print">默认访问页配置：<code id="defaultPageFile">加载中…</code></p>
+        <p class="hint">标签配置保存在本地配置目录中；每个标签保留自己的网页地址、名称和代理节点。单击标签切换，右键标签名称可修改。</p>
+        <p class="fine-print">标签配置文件：<code id="tabsConfigFile">加载中…</code></p>
         <p class="hint">User-Agent 默认仿照 Windows 上的 Google Chrome；这只会改变网站看到的浏览器标识，不会把 Chromium 内核变成 Google Chrome。</p>
         <form id="userAgentForm" class="settings-form">
           <label>浏览器标识（User-Agent）<textarea id="userAgentInput" rows="4" spellcheck="false"></textarea></label>
@@ -93,6 +99,22 @@
         <p class="fine-print">登录 Cookies、网站存储、设置和订阅清单保存在 EXE 同目录下的 <code>MuseBrowserData</code> 文件夹中。请勿将此文件夹分享给他人。</p>
       </section>
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <section class="rename-overlay" id="renameTabOverlay" hidden>
+    <div class="rename-dialog" role="dialog" aria-modal="true" aria-labelledby="renameTabTitle">
+      <h2 id="renameTabTitle">重命名标签</h2>
+      <p>输入新的标签名称，然后点击保存。</p>
+      <form id="renameTabForm">
+        <label for="renameTabName">标签名称</label>
+        <input id="renameTabName" type="text" maxlength="40" autocomplete="off" required>
+        <p class="rename-error" id="renameTabError" role="alert" hidden></p>
+        <div class="rename-actions">
+          <button class="quiet-button" id="cancelTabNameButton" type="button">取消</button>
+          <button class="primary-button" id="saveTabNameButton" type="submit">保存</button>
+        </div>
+      </form>
     </div>
   </section>
   <script src="renderer.js"></script>

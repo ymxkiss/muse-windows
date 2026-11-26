@@ -21,11 +21,14 @@ const { parseSubscriptionNodes } = require('./proxy-nodes');
 const { makeMihomoConfig, proxyConfiguration } = require('./proxy-core-config');
 const { loadOrCreateEnvironment, applyEnvironment } = require('./browser-environment');
 const { loadOrCreateDefaultPage } = require('./default-page');
+const { MAX_TABS, MAX_NAME_LENGTH, nextTabName, loadTabConfig, saveTabConfig } = require('./tab-store');
 
 const APP_TITLE = 'Muse AI Browser';
 const PORTABLE_DIR = process.env.PORTABLE_EXECUTABLE_DIR ||
   (app.isPackaged ? path.dirname(process.execPath) : path.resolve(__dirname, '..'));
 const DATA_DIR = path.join(PORTABLE_DIR, 'MuseBrowserData');
+const CONFIG_DIR = path.join(DATA_DIR, 'config');
+const TABS_FILE = path.join(CONFIG_DIR, 'browser-tabs.json');
 const SUBSCRIPTIONS_DIR = path.join(DATA_DIR, 'subscriptions');
 const CORE_DATA_DIR = path.join(DATA_DIR, 'mihomo');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
@@ -36,6 +39,7 @@ const DEFAULT_USER_AGENT = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKi
 
 // In portable builds, the complete Chromium profile and subscription store live beside the EXE.
 fs.mkdirSync(DATA_DIR, { recursive: true });
+fs.mkdirSync(CONFIG_DIR, { recursive: true });
 fs.mkdirSync(SUBSCRIPTIONS_DIR, { recursive: true });
 app.setPath('userData', DATA_DIR);
 app.setPath('sessionData', path.join(DATA_DIR, 'SessionData'));
@@ -87,9 +91,13 @@ settings.navigationHidden = typeof settings.navigationHidden === 'boolean' ? set
 settings.rightClickDisabled = typeof settings.rightClickDisabled === 'boolean' ? settings.rightClickDisabled : false;
 let subscriptions = readJson(SUBSCRIPTIONS_FILE, []);
 if (!Array.isArray(subscriptions)) subscriptions = [];
+let persistedTabs = loadTabConfig(TABS_FILE, defaultPage.startUrl, settings.proxyNodeId || '');
+let tabs = [];
+let activeTabId = persistedTabs.activeTabId;
 let mainWindow = null;
 let museView = null;
 let browserSession = null;
+let activeTab = null;
 let activeProxyCore = null;
 const proxyCores = new Set();
 let proxyInitialization = Promise.resolve();
@@ -100,6 +108,34 @@ let topInset = settings.navigationHidden ? 52 : 104;
 
 function persistSettings() { writeJsonAtomic(SETTINGS_FILE, settings); }
 function persistSubscriptions() { writeJsonAtomic(SUBSCRIPTIONS_FILE, subscriptions); }
+function persistTabs() {
+  persistedTabs = saveTabConfig(TABS_FILE, {
+    schemaVersion: 1,
+    activeTabId,
+    tabs: tabs.map(({ id, name, url, proxyNodeId, partitionKey }) => ({ id, name, url, proxyNodeId, partitionKey }))
+  });
+  activeTabId = persistedTabs.activeTabId;
+}
+function activateTab(tabId) {
+  const tab = tabs.find((item) => item.id === tabId);
+  if (!tab) throw new Error('找不到该标签。');
+  activeTabId = tab.id;
+  activeTab = tab;
+  museView = tab.view;
+  browserSession = tab.session;
+  activeProxyCore = tab.proxyCore;
+  for (const item of tabs) {
+    if (item.view && !item.view.webContents.isDestroyed()) item.view.setVisible(item === activeTab && !overlayVisible);
+  }
+  persistTabs();
+  layoutMuseView();
+  emitBrowserState({ url: tab.view.webContents.getURL(), proxyNodeId: tab.proxyNodeId || '' });
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('tabs:active', publicTab(tab));
+  return tab;
+}
+function publicTab(tab) {
+  return { id: tab.id, name: tab.name, url: tab.url || '', proxyNodeId: tab.proxyNodeId || '' };
+}
 function cleanError(error) {
   if (error?.name === 'TimeoutError' || error?.name === 'AbortError') return '请求超时，请检查网络后重试。';
   return '网络请求失败，请检查订阅地址和网络连接。';
@@ -179,9 +215,11 @@ async function startProxyCore(node) {
   child.once('exit', () => {
     proxyCores.delete(core);
     try { fs.unlinkSync(configPath); } catch {}
+    const owner = tabs.find((tab) => tab.proxyCore === core);
+    if (owner) owner.proxyCore = null;
     if (activeProxyCore === core) {
       activeProxyCore = null;
-      emitBrowserState({ loading: false, failed: true });
+      if (owner === activeTab) emitBrowserState({ loading: false, failed: true });
     }
   });
   try {
@@ -199,22 +237,24 @@ async function startProxyCore(node) {
     throw new Error('所选 Clash 节点启动失败，请检查订阅格式、节点协议和参数。');
   }
 }
-async function applyProxyNode(node) {
+async function applyProxyNode(node, targetTab = activeTab) {
+  if (!targetTab) return;
   if (!node) {
-    if (browserSession) {
-      await browserSession.setProxy({ mode: 'direct' });
-      await browserSession.closeAllConnections();
+    if (targetTab.session) {
+      await targetTab.session.setProxy({ mode: 'direct' });
+      await targetTab.session.closeAllConnections();
     }
-    const previousCore = activeProxyCore;
-    activeProxyCore = null;
+    const previousCore = targetTab.proxyCore;
+    targetTab.proxyCore = null;
+    if (targetTab === activeTab) activeProxyCore = null;
     stopProxyCore(previousCore);
     return;
   }
-  const previousCore = activeProxyCore;
+  const previousCore = targetTab.proxyCore;
   const candidateCore = await startProxyCore(node);
   try {
-    await browserSession.setProxy(proxyConfiguration(candidateCore.port));
-    await browserSession.closeAllConnections();
+    await targetTab.session.setProxy(proxyConfiguration(candidateCore.port));
+    await targetTab.session.closeAllConnections();
     if (candidateCore.child.exitCode !== null) throw new Error('代理核心已意外退出。');
   } catch {
     stopProxyCore(candidateCore);
@@ -222,12 +262,13 @@ async function applyProxyNode(node) {
       const fallback = previousCore && previousCore.child.exitCode === null
         ? proxyConfiguration(previousCore.port)
         : { mode: 'direct' };
-      await browserSession.setProxy(fallback);
-      await browserSession.closeAllConnections();
+      await targetTab.session.setProxy(fallback);
+      await targetTab.session.closeAllConnections();
     } catch {}
     throw new Error('浏览器无法连接到所选 Clash 节点。');
   }
-  activeProxyCore = candidateCore;
+  targetTab.proxyCore = candidateCore;
+  if (targetTab === activeTab) activeProxyCore = candidateCore;
   if (previousCore && previousCore !== candidateCore) stopProxyCore(previousCore);
 }
 function publicProxyNode(node) {
@@ -242,18 +283,23 @@ function publicProxyNode(node) {
 }
 async function reconcileProxySelection(updatedSubscriptionId = '') {
   await proxyInitialization;
-  if (!settings.proxyNodeId) return;
   const nodes = collectProxyNodes();
-  const selected = nodes.find((node) => node.id === settings.proxyNodeId) || null;
-  if (!selected) {
-    await applyProxyNode(null);
-    settings.proxyNodeId = '';
-    persistSettings();
-    if (museView && !museView.webContents.isDestroyed()) museView.webContents.reload();
-  } else if (updatedSubscriptionId && selected.sourceId === String(updatedSubscriptionId)) {
-    await applyProxyNode(selected);
-    if (museView && !museView.webContents.isDestroyed()) museView.webContents.reload();
+  let changed = false;
+  for (const tab of tabs) {
+    if (!tab.proxyNodeId) continue;
+    const selected = nodes.find((node) => node.id === tab.proxyNodeId) || null;
+    if (!selected) {
+      await applyProxyNode(null, tab);
+      tab.proxyNodeId = '';
+      changed = true;
+      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.reload();
+    } else if (updatedSubscriptionId && selected.sourceId === String(updatedSubscriptionId)) {
+      await applyProxyNode(selected, tab);
+      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.reload();
+    }
   }
+  if (changed) persistTabs();
+  if (activeTab) emitBrowserState({ proxyNodeId: activeTab.proxyNodeId || '' });
 }
 async function getAppState() {
   await proxyInitialization;
@@ -266,7 +312,10 @@ async function getAppState() {
     userAgent: settings.userAgent,
     subscriptions,
     proxyNodes: nodes.map(publicProxyNode),
-    proxyNodeId: settings.proxyNodeId || '',
+    proxyNodeId: activeTab?.proxyNodeId || '',
+    tabs: tabs.map(publicTab),
+    activeTabId,
+    tabsConfigFile: TABS_FILE,
     navigationHidden: settings.navigationHidden,
     rightClickDisabled: settings.rightClickDisabled,
     environment: browserEnvironment
@@ -277,19 +326,22 @@ function emitBrowserState(extra = {}) {
     const { url: eventUrl, ...details } = extra;
     const currentUrl = eventUrl || museView?.webContents.getURL() || '';
     const url = currentUrl === INITIAL_URL ? '' : currentUrl;
-    mainWindow.webContents.send('browser:state', { url, proxyNodeId: settings.proxyNodeId || '', ...details });
+    mainWindow.webContents.send('browser:state', { url, proxyNodeId: activeTab?.proxyNodeId || '', activeTabId, ...details });
   }
 }
 function layoutMuseView() {
-  if (!mainWindow || mainWindow.isDestroyed() || !museView) return;
+  if (!mainWindow || mainWindow.isDestroyed() || !tabs.length) return;
   const [width, height] = mainWindow.getContentSize();
-  museView.setBounds({
-    x: 0,
-    y: topInset,
-    width: Math.max(0, width),
-    height: Math.max(0, height - topInset)
-  });
-  museView.setVisible(!overlayVisible);
+  for (const tab of tabs) {
+    if (!tab.view || tab.view.webContents.isDestroyed()) continue;
+    tab.view.setBounds({
+      x: 0,
+      y: topInset,
+      width: Math.max(0, width),
+      height: Math.max(0, height - topInset)
+    });
+    tab.view.setVisible(tab === activeTab && !overlayVisible);
+  }
 }
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) createMainWindow();
@@ -320,6 +372,78 @@ function createTray() {
   tray.on('double-click', showMainWindow);
 }
 
+function createBrowserTab(config) {
+  const partition = config.partitionKey === 'legacy'
+    ? `persist:muse-${browserEnvironment.id}`
+    : `persist:muse-${browserEnvironment.id}-${config.partitionKey || config.id}`;
+  const tabSession = session.fromPartition(partition, { cache: true });
+  const view = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'web-preload.js'),
+      session: tabSession,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true
+    }
+  });
+  const tab = { ...config, session: tabSession, view, proxyCore: null };
+  view.webContents.setUserAgent(settings.userAgent);
+  view.webContents.on('context-menu', (event, params) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (settings.rightClickDisabled) {
+      event.preventDefault();
+      return;
+    }
+    const items = [];
+    if (params.isEditable) {
+      items.push({ role: 'undo', label: '撤销' }, { role: 'redo', label: '重做' }, { type: 'separator' });
+      items.push({ role: 'cut', label: '剪切' }, { role: 'copy', label: '复制' }, { role: 'paste', label: '粘贴' }, { role: 'selectAll', label: '全选' });
+    } else {
+      if (params.linkURL && /^https?:\/\//i.test(params.linkURL)) {
+        items.push({ label: '在当前页打开链接', click: () => view.webContents.loadURL(params.linkURL).catch(() => {}) });
+      }
+      if (params.selectionText) items.push({ role: 'copy', label: '复制选中文本' });
+      items.push({ role: 'selectAll', label: '全选' });
+    }
+    if (items.length) items.push({ type: 'separator' });
+    items.push(
+      { label: '后退', enabled: view.webContents.canGoBack(), click: () => view.webContents.goBack() },
+      { label: '前进', enabled: view.webContents.canGoForward(), click: () => view.webContents.goForward() },
+      { label: '刷新', click: () => view.webContents.reload() }
+    );
+    if (params.mediaType === 'image' && Number.isFinite(params.x) && Number.isFinite(params.y)) {
+      items.push({ type: 'separator' }, { label: '复制图片', click: () => view.webContents.copyImageAt(params.x, params.y) });
+    }
+    Menu.buildFromTemplate(items).popup({ window: mainWindow });
+  });
+  view.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) view.webContents.loadURL(url).catch(() => {});
+    return { action: 'deny' };
+  });
+  view.webContents.on('will-navigate', (event, url) => {
+    if (url !== INITIAL_URL && !url.startsWith('http://') && !url.startsWith('https://')) event.preventDefault();
+  });
+  const recordUrl = (url) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      tab.url = url;
+      persistTabs();
+    }
+    if (tab === activeTab) emitBrowserState({ url });
+  };
+  view.webContents.on('did-navigate', (_event, url) => recordUrl(url));
+  view.webContents.on('did-navigate-in-page', (_event, url) => recordUrl(url));
+  view.webContents.on('did-start-loading', () => { if (tab === activeTab) emitBrowserState({ loading: true }); });
+  view.webContents.on('did-stop-loading', () => { if (tab === activeTab) emitBrowserState({ loading: false }); });
+  view.webContents.on('page-title-updated', (_event, title) => {
+    if (tab === activeTab && mainWindow && !mainWindow.isDestroyed()) mainWindow.setTitle(title ? `${title} — ${APP_TITLE}` : APP_TITLE);
+  });
+  view.webContents.on('did-fail-load', (_event, errorCode) => {
+    if (tab === activeTab && errorCode !== -3) emitBrowserState({ loading: false, failed: true });
+  });
+  return tab;
+}
+
 function createMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
   mainWindow = new BrowserWindow({
@@ -345,69 +469,11 @@ function createMainWindow() {
     if (!url.startsWith('file://')) event.preventDefault();
   });
 
-  const museSession = session.fromPartition(`persist:muse-${browserEnvironment.id}`, { cache: true });
-  browserSession = museSession;
-  museView = new WebContentsView({
-    webPreferences: {
-      preload: path.join(__dirname, 'web-preload.js'),
-      session: museSession,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true
-    }
-  });
-  museView.webContents.setUserAgent(settings.userAgent);
-  museView.webContents.on('context-menu', (event, params) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (settings.rightClickDisabled) {
-      event.preventDefault();
-      return;
-    }
-    const items = [];
-    if (params.isEditable) {
-      items.push({ role: 'undo', label: '撤销' }, { role: 'redo', label: '重做' }, { type: 'separator' });
-      items.push({ role: 'cut', label: '剪切' }, { role: 'copy', label: '复制' }, { role: 'paste', label: '粘贴' }, { role: 'selectAll', label: '全选' });
-    } else {
-      if (params.linkURL && /^https?:\/\//i.test(params.linkURL)) {
-        items.push({ label: '在当前页打开链接', click: () => museView?.webContents.loadURL(params.linkURL).catch(() => {}) });
-      }
-      if (params.selectionText) items.push({ role: 'copy', label: '复制选中文本' });
-      items.push({ role: 'selectAll', label: '全选' });
-    }
-    if (items.length) items.push({ type: 'separator' });
-    items.push(
-      { label: '后退', enabled: museView.webContents.canGoBack(), click: () => museView.webContents.goBack() },
-      { label: '前进', enabled: museView.webContents.canGoForward(), click: () => museView.webContents.goForward() },
-      { label: '刷新', click: () => museView.webContents.reload() }
-    );
-    if (params.mediaType === 'image' && Number.isFinite(params.x) && Number.isFinite(params.y)) {
-      items.push({ type: 'separator' }, { label: '复制图片', click: () => museView.webContents.copyImageAt(params.x, params.y) });
-    }
-    Menu.buildFromTemplate(items).popup({ window: mainWindow });
-  });
-  museView.webContents.setWindowOpenHandler(({ url }) => {
-    // Pages requesting target=_blank or window.open stay in this browser window.
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      museView.webContents.loadURL(url).catch(() => {});
-    }
-    return { action: 'deny' };
-  });
-  museView.webContents.on('will-navigate', (event, url) => {
-    if (url !== INITIAL_URL && !url.startsWith('http://') && !url.startsWith('https://')) event.preventDefault();
-  });
-  museView.webContents.on('did-navigate', (_event, url) => emitBrowserState({ url }));
-  museView.webContents.on('did-navigate-in-page', (_event, url) => emitBrowserState({ url }));
-  museView.webContents.on('did-start-loading', () => emitBrowserState({ loading: true }));
-  museView.webContents.on('did-stop-loading', () => emitBrowserState({ loading: false }));
-  museView.webContents.on('page-title-updated', (_event, title) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setTitle(title ? `${title} — ${APP_TITLE}` : APP_TITLE);
-  });
-  museView.webContents.on('did-fail-load', (_event, errorCode) => {
-    if (errorCode !== -3) emitBrowserState({ loading: false, failed: true });
-  });
-
-  mainWindow.contentView.addChildView(museView);
+  tabs = persistedTabs.tabs.map(createBrowserTab);
+  activeTab = tabs.find((tab) => tab.id === activeTabId) || tabs[0];
+  activeTabId = activeTab.id;
+  for (const tab of tabs) mainWindow.contentView.addChildView(tab.view);
+  activateTab(activeTab.id);
   mainWindow.on('resize', layoutMuseView);
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized', true));
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized', false));
@@ -417,7 +483,7 @@ function createMainWindow() {
       mainWindow.hide();
     }
   });
-  mainWindow.on('closed', () => { mainWindow = null; museView = null; });
+  mainWindow.on('closed', () => { mainWindow = null; museView = null; browserSession = null; activeTab = null; });
   mainWindow.webContents.once('did-finish-load', () => {
     layoutMuseView();
     mainWindow.show();
@@ -429,26 +495,21 @@ function createMainWindow() {
     mainWindow.webContents.send('window:maximized', mainWindow.isMaximized());
   });
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
-  const initialNode = settings.proxyNodeId ? proxyNodeById(settings.proxyNodeId) : null;
-  if (settings.proxyNodeId && !initialNode) {
-    settings.proxyNodeId = '';
-    persistSettings();
-  }
   proxyInitialization = (async () => {
-    await applyEnvironment(museView.webContents, museSession, browserEnvironment, settings.userAgent, process.versions.chrome);
-    try {
-      await applyProxyNode(initialNode);
-    } catch {
-      settings.proxyNodeId = '';
-      persistSettings();
-      try { await applyProxyNode(null); } catch {}
-    }
+    await Promise.all(tabs.map(async (tab) => {
+      await applyEnvironment(tab.view.webContents, tab.session, browserEnvironment, settings.userAgent, process.versions.chrome);
+      const initialNode = tab.proxyNodeId ? proxyNodeById(tab.proxyNodeId) : null;
+      if (tab.proxyNodeId && !initialNode) tab.proxyNodeId = '';
+      try { await applyProxyNode(initialNode, tab); }
+      catch { tab.proxyNodeId = ''; try { await applyProxyNode(null, tab); } catch {} }
+      tab.view.webContents.loadURL(tab.url || defaultPage.startUrl).catch(() => {
+        if (tab === activeTab) emitBrowserState({ loading: false, failed: true });
+      });
+    }));
+    persistTabs();
+    if (activeTab) activateTab(activeTab.id);
   })();
-  proxyInitialization.then(() => {
-    if (museView && !museView.webContents.isDestroyed()) {
-      museView.webContents.loadURL(defaultPage.startUrl).catch(() => emitBrowserState({ loading: false, failed: true }));
-    }
-  }).catch((error) => {
+  proxyInitialization.catch((error) => {
     dialog.showErrorBox('浏览器环境应用失败', `为避免使用未配置的环境，程序已停止。\n${error.message}`);
     app.exit(1);
   });
@@ -471,12 +532,65 @@ ipcMain.handle('window:control', (event, commandValue) => {
   else throw new Error('未知的窗口操作。');
   return { maximized: mainWindow.isMaximized() };
 });
+ipcMain.handle('tabs:add', async (event, nameValue) => {
+  assertLocalRenderer(event);
+  await proxyInitialization;
+  if (tabs.length >= MAX_TABS) throw new Error(`最多可创建 ${MAX_TABS} 个标签。`);
+  const requestedName = String(nameValue || '').trim().slice(0, MAX_NAME_LENGTH);
+  const name = requestedName || nextTabName(tabs);
+  const id = crypto.randomUUID();
+  const tab = createBrowserTab({ id, name, url: defaultPage.startUrl, proxyNodeId: '', partitionKey: id });
+  tabs.push(tab);
+  mainWindow.contentView.addChildView(tab.view);
+  try {
+    await applyEnvironment(tab.view.webContents, tab.session, browserEnvironment, settings.userAgent, process.versions.chrome);
+    await applyProxyNode(null, tab);
+    tab.view.webContents.loadURL(tab.url).catch(() => {});
+    activateTab(tab.id);
+    return { tabs: tabs.map(publicTab), activeTabId };
+  } catch (error) {
+    tabs = tabs.filter((item) => item !== tab);
+    mainWindow.contentView.removeChildView(tab.view);
+    tab.view.webContents.close({ waitForBeforeUnload: false });
+    throw error;
+  }
+});
+ipcMain.handle('tabs:activate', async (event, idValue) => {
+  assertLocalRenderer(event);
+  await proxyInitialization;
+  const tab = activateTab(String(idValue || ''));
+  return { tabs: tabs.map(publicTab), activeTabId, activeTab: publicTab(tab) };
+});
+ipcMain.handle('tabs:rename', (event, input) => {
+  assertLocalRenderer(event);
+  const tab = tabs.find((item) => item.id === String(input?.id || ''));
+  if (!tab) throw new Error('找不到该标签。');
+  const name = String(input?.name || '').trim().slice(0, MAX_NAME_LENGTH);
+  if (!name) throw new Error('标签名称不能为空。');
+  tab.name = name;
+  persistTabs();
+  return { tabs: tabs.map(publicTab), activeTabId };
+});
+ipcMain.handle('tabs:close', async (event, idValue) => {
+  assertLocalRenderer(event);
+  await proxyInitialization;
+  if (tabs.length <= 1) throw new Error('至少需要保留一个标签。');
+  const index = tabs.findIndex((item) => item.id === String(idValue || ''));
+  if (index < 0) throw new Error('找不到该标签。');
+  const [tab] = tabs.splice(index, 1);
+  stopProxyCore(tab.proxyCore);
+  mainWindow.contentView.removeChildView(tab.view);
+  if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close({ waitForBeforeUnload: false });
+  if (tab.id === activeTabId) activateTab(tabs[Math.min(index, tabs.length - 1)].id);
+  else persistTabs();
+  return { tabs: tabs.map(publicTab), activeTabId };
+});
 ipcMain.handle('browser:check-proxy-health', async (event) => {
   assertLocalRenderer(event);
   await proxyInitialization;
-  const proxyNodeId = settings.proxyNodeId || '';
+  const proxyNodeId = activeTab?.proxyNodeId || '';
   if (!proxyNodeId) return { proxyNodeId: '', ok: true, direct: true, latencyMs: 0 };
-  if (!proxyNodeById(proxyNodeId) || !activeProxyCore || activeProxyCore.child.exitCode !== null) {
+  if (!proxyNodeById(proxyNodeId) || !activeTab?.proxyCore || activeTab.proxyCore.child.exitCode !== null) {
     return { proxyNodeId, ok: false, latencyMs: null };
   }
   const startedAt = Date.now();
@@ -529,12 +643,12 @@ ipcMain.handle('browser:set-proxy', async (event, nodeIdValue) => {
   const nodeId = String(nodeIdValue || '');
   const node = nodeId ? proxyNodeById(nodeId) : null;
   if (nodeId && !node) throw new Error('找不到该节点；请先更新订阅列表。');
-  await applyProxyNode(node);
-  settings.proxyNodeId = node?.id || '';
-  persistSettings();
+  await applyProxyNode(node, activeTab);
+  activeTab.proxyNodeId = node?.id || '';
+  persistTabs();
   if (museView && !museView.webContents.isDestroyed()) museView.webContents.reload();
   emitBrowserState({ loading: true });
-  return { proxyNodeId: settings.proxyNodeId, proxyNode: node ? publicProxyNode(node) : null };
+  return { proxyNodeId: activeTab.proxyNodeId, proxyNode: node ? publicProxyNode(node) : null };
 });
 ipcMain.handle('browser:command', async (event, command) => {
   assertLocalRenderer(event);
@@ -552,10 +666,10 @@ ipcMain.handle('app:save-user-agent', async (event, value) => {
   await proxyInitialization;
   const userAgent = String(value || '').trim();
   if (userAgent.length < 20 || userAgent.length > 500) throw new Error('浏览器标识长度应为 20–500 个字符。');
-  await applyEnvironment(museView.webContents, browserSession, browserEnvironment, userAgent, process.versions.chrome);
+  await Promise.all(tabs.map((tab) => applyEnvironment(tab.view.webContents, tab.session, browserEnvironment, userAgent, process.versions.chrome)));
   settings.userAgent = userAgent;
   persistSettings();
-  museView.webContents.reload();
+  for (const tab of tabs) tab.view.webContents.reload();
   return { userAgent };
 });
 ipcMain.handle('app:open-data-dir', (event) => {

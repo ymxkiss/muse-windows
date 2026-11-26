@@ -22,6 +22,16 @@ button { cursor: pointer; }
 .brand-row { height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px 0 20px; -webkit-app-region: drag; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -.2px; }
 .brand img { width: 28px; height: 28px; object-fit: contain; border-radius: 7px; }
+.browser-tab-strip { display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; margin: 0 14px; -webkit-app-region: no-drag; }
+.add-tab-button { flex: 0 0 auto; height: 32px; padding: 0 11px; border: 1px solid #dce2eb; border-radius: 8px; background: #f7f9fc; color: #365375; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.add-tab-button:hover { border-color: #b9c9df; background: #eef4fc; }
+.browser-tabs { display: flex; min-width: 0; flex: 1; align-items: center; gap: 5px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.browser-tab { display: flex; min-width: 84px; max-width: 190px; height: 32px; flex: 0 1 auto; align-items: center; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #617089; }
+.browser-tab.active { border-color: #dbe7f7; background: #f0f5fc; color: #245fae; }
+.browser-tab-select { min-width: 0; height: 100%; flex: 1; padding: 0 5px 0 11px; overflow: hidden; border: 0; background: transparent; color: inherit; font-size: 12px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.browser-tab-close { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #8190a5; font-size: 15px; }
+.browser-tab-close:hover:not(:disabled) { background: #e3eaf4; color: #ad4545; }
+.browser-tab-close:disabled { visibility: hidden; cursor: default; }
 .top-actions { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
 .quiet-button, .icon-button, .nav-button, .go-button, .primary-button, .small-button {
   border: 1px solid #dce2eb;
@@ -65,6 +75,18 @@ button { cursor: pointer; }
 .window-control:focus-visible, .proxy-health:focus-visible { outline: 2px solid #7ea7ed; outline-offset: 1px; }
 .overlay { position: fixed; z-index: 10; inset: 0; display: flex; align-items: center; justify-content: center; padding: 22px; background: rgba(19, 27, 41, .48); }
 .overlay[hidden] { display: none; }
+.rename-overlay { position: fixed; z-index: 20; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(19, 27, 41, .48); }
+.rename-overlay[hidden] { display: none; }
+.rename-dialog { width: min(420px, 100%); padding: 22px; border: 1px solid rgba(255,255,255,.7); border-radius: 16px; background: #fff; box-shadow: 0 22px 75px rgba(13, 23, 42, .24); }
+.rename-dialog h2 { margin: 0; color: #202c40; font-size: 18px; letter-spacing: -.2px; }
+.rename-dialog > p { margin: 8px 0 18px; color: #6d7b91; font-size: 12px; line-height: 1.5; }
+.rename-dialog label { display: block; margin-bottom: 7px; color: #59677c; font-size: 12px; font-weight: 650; }
+.rename-dialog input { width: 100%; min-height: 38px; padding: 9px 10px; border: 1px solid #dce3ed; border-radius: 8px; outline: none; background: #fff; color: #202c40; font-size: 13px; }
+.rename-dialog input:focus { border-color: #7ea7ed; box-shadow: 0 0 0 3px rgba(78, 132, 220, .11); }
+.rename-error { margin: 8px 0 0; color: #ad4545; font-size: 12px; }
+.rename-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.rename-actions .quiet-button, .rename-actions .primary-button { min-height: 36px; }
+.rename-actions .primary-button:disabled { cursor: wait; opacity: .58; }
 .manager-card { position: relative; display: flex; flex-direction: column; width: min(920px, 100%); max-height: min(780px, 94vh); min-height: 520px; padding: 24px 28px 22px; overflow: hidden; border: 1px solid rgba(255,255,255,.7); border-radius: 18px; background: #fff; box-shadow: 0 22px 75px rgba(13, 23, 42, .24); }
 .manager-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
 .eyebrow { margin: 0 0 4px; color: #76849a; font-size: 11px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
@@ -109,6 +131,14 @@ code { color: #53647f; }
 .toast.visible { opacity: 1; }
 .toast.error { border-color: #f0d4d4; background: #fff5f5; color: #ad4545; }
 @media (max-width: 760px) {
+  .brand-row { padding: 0 8px; }
+  .brand { gap: 6px; font-size: 12px; }
+  .brand img { width: 24px; height: 24px; }
+  .browser-tab-strip { gap: 4px; margin: 0 6px; }
+  .add-tab-button { padding: 0 7px; font-size: 10px; }
+  .browser-tab { min-width: 64px; }
+  .browser-tab-select { padding-left: 7px; font-size: 10px; }
+  .browser-tab-close { width: 20px; }
   .connection-status { display: none; }
   .proxy-select-wrap { gap: 3px; padding: 0 6px; }
   .proxy-select-wrap span { display: none; }
